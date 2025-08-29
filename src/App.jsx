@@ -1,239 +1,166 @@
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
-/** Riley's Word Game — fixed:
- *  - Live typing row shows in the grid
- *  - On-screen keyboard clicks (letters, Enter, Backspace)
- *  - Backspace from hardware keyboard works
- */
+const FRIEND_KEYS = ["Riley", "Kaylin", "Eve", "Jess"];
+const DATA_URL = "https://script.google.com/macros/s/AKfycbwhqWjyiXaw7Ir-Xa5_bzyO5nD5IZs4vDD8xvmDjpX855rcFQ67Jnz49C-vEpK51ZmT/exec";
 
-const WORDS = ["RILEY","PEACH","HEART","SMILE","PETAL","HONEY","GRACE","CANDY","ROSIE","PARTY","BLOSS","BERRY","PINKY"];
-const MAX_ATTEMPTS = 6;
-const WORD_LENGTH = 5;
+const FRIEND_COLOR = {
+  Riley: { card: "from-emerald-500/30 to-emerald-400/20 border-emerald-300", chipPlus: "bg-emerald-400 text-emerald-950", chipMinus: "bg-emerald-700 text-white" },
+  Kaylin: { card: "from-sky-500/30 to-sky-400/20 border-sky-300", chipPlus: "bg-sky-400 text-sky-950", chipMinus: "bg-sky-700 text-white" },
+  Eve:   { card: "from-fuchsia-500/30 to-fuchsia-400/20 border-fuchsia-300", chipPlus: "bg-fuchsia-400 text-fuchsia-950", chipMinus: "bg-fuchsia-700 text-white" },
+  Jess:  { card: "from-amber-400/30 to-amber-300/20 border-amber-300", chipPlus: "bg-amber-300 text-amber-950", chipMinus: "bg-amber-700 text-white" },
+};
 
-const pickRandomWord = () => WORDS[Math.floor(Math.random() * WORDS.length)];
-
-function evaluateGuess(guess, answer) {
-  const res = Array(WORD_LENGTH).fill("absent");
-  const counts = {};
-  for (let i = 0; i < WORD_LENGTH; i++) counts[answer[i]] = (counts[answer[i]] || 0) + 1;
-  for (let i = 0; i < WORD_LENGTH; i++) if (guess[i] === answer[i]) { res[i] = "correct"; counts[guess[i]]--; }
-  for (let i = 0; i < WORD_LENGTH; i++) {
-    if (res[i] === "correct") continue;
-    const ch = guess[i];
-    if (counts[ch] > 0) { res[i] = "present"; counts[ch]--; }
-  }
-  return res;
+function formatTimeAgo(ts) {
+  const diff = Date.now() - ts;
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
 }
 
-export default function App() {
-  const [answer, setAnswer] = useState(pickRandomWord);
-  const [rows, setRows] = useState([]);          // {guess, eval}[]
-  const [current, setCurrent] = useState("");    // live guess
-  const [status, setStatus] = useState("playing"); // "playing" | "won" | "lost"
-  const inputRef = useRef(null);
+export default function JoshPointsApp() {
+  const [scores, setScores] = useState({ Riley: 0, Kaylin: 0, Eve: 0, Jess: 0 });
+  const [updates, setUpdates] = useState([]);
+  const [rules, setRules] = useState([]); // ← array from Sheets
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => { inputRef.current?.focus(); }, [status]);
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      try {
+        setLoading(true);
+        const res = await fetch(`${DATA_URL}?t=${Date.now()}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json(); // { scores, updates, rules }
 
-  const keyboardHints = useMemo(() => {
-    const order = { absent: 0, present: 1, correct: 2 };
-    const best = {};
-    for (const r of rows) {
-      r.eval.forEach((st, i) => {
-        const ch = r.guess[i];
-        if (!best[ch] || order[st] > order[best[ch]]) best[ch] = st;
-      });
+        if (!alive) return;
+        setScores({ Riley:0, Kaylin:0, Eve:0, Jess:0, ...(data.scores || {}) });
+        setUpdates(Array.isArray(data.updates) ? data.updates : []);
+        setRules(Array.isArray(data.rules) ? data.rules : []);
+      } catch (e) {
+        console.error("Failed to load Josh Points:", e);
+      } finally {
+        if (alive) setLoading(false);
+      }
     }
-    return best;
-  }, [rows]);
+    load();
+    const id = setInterval(load, 60_000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
 
-  function resetGame() {
-    setAnswer(pickRandomWord());
-    setRows([]);
-    setCurrent("");
-    setStatus("playing");
-    inputRef.current?.focus();
-  }
-
-  function submitGuess() {
-    if (status !== "playing") return;
-    const g = current.toUpperCase().replace(/[^A-Z]/g, "");
-    if (g.length !== WORD_LENGTH) return;
-    const evaluation = evaluateGuess(g, answer);
-    const newRows = [...rows, { guess: g, eval: evaluation }];
-    setRows(newRows);
-    setCurrent("");
-    if (g === answer) setStatus("won");
-    else if (newRows.length >= MAX_ATTEMPTS) setStatus("lost");
-  }
-
-  function onKeyDown(e) {
-    if (status !== "playing") return;
-    if (e.key === "Enter") { e.preventDefault(); submitGuess(); return; }
-    if (e.key === "Backspace") { setCurrent(c => c.slice(0, -1)); return; }
-  }
-
-  function handleKey(k) {
-    if (status !== "playing") return;
-    if (k === "ENTER") { submitGuess(); return; }
-    if (k === "BACKSPACE") { setCurrent(c => c.slice(0, -1)); return; }
-    if (/^[A-Z]$/.test(k)) setCurrent(c => (c + k).slice(0, WORD_LENGTH));
-  }
+  const total = useMemo(
+    () => FRIEND_KEYS.reduce((acc, k) => acc + (scores[k] || 0), 0),
+    [scores]
+  );
 
   return (
-    <div className="riley-game">
-      <style>{`
-        :root { --pink-900:#7a224f; --pink-700:#b83280; --pink-600:#d9468f; --pink-500:#ec4899;
-                --pink-400:#f472b6; --pink-300:#f9a8d4; --pink-200:#fbcfe8; --pink-100:#fce7f3;
-                --ink-900:#1f1a22; --ink-700:#2f2430; --gray-300:#dad2da; --gray-600:#7b7380; --white:#fff; }
-        *{box-sizing:border-box} body{margin:0}
-        .riley-game{min-height:100svh;display:grid;place-items:center;
-          background:linear-gradient(180deg,var(--pink-100),var(--pink-200));
-          font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;
-          color:var(--ink-900); padding:24px;}
-        .card{width:min(720px,100%);background:var(--white);border:1px solid var(--pink-200);
-          box-shadow:0 20px 60px rgba(236,72,153,.25);border-radius:24px;padding:24px;}
-        .title{display:flex;align-items:center;gap:12px;margin-bottom:8px;}
-        .pill{background:var(--pink-100);color:var(--pink-700);border:1px solid var(--pink-200);
-          padding:4px 10px;border-radius:999px;font-weight:600;font-size:12px;letter-spacing:.06em;text-transform:uppercase;}
-        h1{margin:0;font-size:28px;color:var(--pink-900)}
-        .subtitle{color:var(--ink-700);margin:0 0 20px}
+    <div className="min-h-screen w-full bg-gradient-to-b from-indigo-800 via-fuchsia-700 to-rose-700 text-white p-6">
+      <div className="mx-auto max-w-6xl">
+        <header className="mb-8">
+          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight drop-shadow text-center">Josh Points <br></br><span className="text-2xl sm:text-4xl font-extrabold tracking-tight drop-shadow text-center">Calder 405</span></h1>
+        </header>
 
-        .grid{display:grid;grid-template-columns:repeat(${WORD_LENGTH},1fr);gap:8px;margin:16px 0 8px;}
-        .cell{width:56px;height:56px;border-radius:12px;display:grid;place-items:center;font-weight:800;font-size:22px;
-          letter-spacing:.05em;border:1px solid var(--gray-300);color:var(--ink-900);background:#fff;}
-        .cell.correct{background:var(--pink-500);color:#fff;border-color:var(--pink-500)}
-        .cell.present{background:var(--pink-200);color:var(--ink-900);border-color:var(--pink-300)}
-        .cell.absent{background:#f5f5f7;color:var(--gray-600)}
-        .row-spacer{height:8px}
-
-        .controls{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:16px 0 8px;}
-        .input{flex:1 1 220px;min-width:220px;background:#fff;border:2px solid var(--pink-300);outline:none;border-radius:12px;
-          padding:12px 14px;font-size:18px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;}
-        .btn{background:var(--pink-600);color:#fff;border:none;padding:12px 16px;border-radius:12px;font-weight:700;cursor:pointer;
-          transition:transform .05s ease, filter .15s ease;}
-        .btn:hover{filter:brightness(1.02)} .btn:active{transform:translateY(1px)}
-        .btn.secondary{background:transparent;color:var(--pink-700);border:2px solid var(--pink-300)}
-
-        .status{display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px dashed var(--pink-300);
-          background:var(--pink-100);color:var(--pink-900);border-radius:12px;margin-top:8px;font-weight:600;}
-
-        .kbd{display:grid;grid-template-columns:repeat(10,1fr);gap:6px;margin-top:16px;}
-        .key{padding:10px 0;text-align:center;border-radius:8px;border:1px solid var(--pink-200);background:#fff;
-          font-weight:700;cursor:pointer;user-select:none;color:black;}
-        .key.correct{background:var(--pink-500);color:#fff;border-color:var(--pink-500)}
-        .key.present{background:var(--pink-200);color:var(--ink-900);border-color:var(--pink-300)}
-        .key.absent{background:#f5f5f7;color:var(--gray-600)}
-
-        @media (max-width:480px){ .cell{width:44px;height:44px;font-size:18px} }
-      `}</style>
-
-      <div className="card" role="region" aria-label="Riley's Word Game">
-        <div className="title">
-          <span className="pill">Riley's</span>
-          <h1>Word Game</h1>
-        </div>
-        <p className="subtitle">
-          Guess the <strong>{WORD_LENGTH}</strong>-letter word in <strong>{MAX_ATTEMPTS}</strong> tries. Pink power only ✨
-        </p>
-
-        {/* Guess grid (now includes a live typing row) */}
-        <div aria-live="polite">
-          {Array.from({ length: MAX_ATTEMPTS }).map((_, rowIdx) => {
-            let letters = Array(WORD_LENGTH).fill("");
-            let evals = Array(WORD_LENGTH).fill("empty");
-
-            if (rowIdx < rows.length) {
-              const row = rows[rowIdx];
-              letters = row.guess.split("");
-              evals = row.eval;
-            } else if (rowIdx === rows.length && status === "playing") {
-              const live = current.padEnd(WORD_LENGTH, " ").slice(0, WORD_LENGTH);
-              letters = live.split("");
-            }
-
-            return (
-              <div className="grid" key={rowIdx} aria-label={`Row ${rowIdx + 1}`}>
-                {letters.map((ch, i) => (
-                  <div key={i} className={`cell ${evals[i] === "empty" ? "" : evals[i]}`} aria-label={ch || "empty"}>
-                    {ch}
+        {/* Scoreboard (2x2 on mobile, horizontal on larger) */}
+        <section className="mb-8">
+          <div className="grid grid-cols-2 gap-3 sm:flex sm:gap-3 sm:overflow-x-auto sm:pb-2">
+            {FRIEND_KEYS.map((friend) => (
+              <div
+                key={friend}
+                className={`flex-shrink-0 min-w-[140px] sm:min-w-[180px] rounded-2xl bg-gradient-to-br ${FRIEND_COLOR[friend].card} border shadow-lg p-4 backdrop-blur-sm text-center`}
+              >
+                {loading ? (
+                  <div className="animate-pulse select-none">
+                    <div className="h-5 w-16 mx-auto mb-2 rounded bg-white/40"></div>
+                    <div className="h-8 w-12 mx-auto rounded bg-white/70"></div>
+                    <div className="h-3 w-20 mx-auto mt-2 rounded bg-white/30"></div>
                   </div>
-                ))}
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between mb-1">
+                      <h2 className="text-xl font-bold drop-shadow-sm">{friend}</h2>
+                      <span className="text-3xl font-extrabold tabular-nums">{scores[friend]}</span>
+                    </div>
+                    <div className="text-xs text-white/80 float-right">Josh Points</div>
+                  </>
+                )}
               </div>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        </section>
 
-        {/* Controls */}
-        <div className="controls">
-          <input
-            ref={inputRef}
-            className="input"
-            aria-label="Type your guess"
-            placeholder="Type 5 letters"
-            value={current}
-            onChange={(e) => {
-              const v = e.target.value.toUpperCase().replace(/[^A-Z]/g, "");
-              setCurrent(v.slice(0, WORD_LENGTH));
-            }}
-            onKeyDown={onKeyDown}
-            disabled={status !== "playing"}
-          />
-          <button className="btn" onClick={submitGuess} disabled={status !== "playing"}>Guess</button>
-          <button className="btn secondary" onClick={resetGame}>New Game</button>
-        </div>
-
-        {/* Status */}
-        {status !== "playing" && (
-          <div className="status" role="status">
-            {status === "won" ? (
-              <>
-                <span>💖</span>
-                <span>You nailed it! The word was <strong>{answer}</strong>.</span>
-              </>
+        {/* Updates */}
+        <section className="mb-10">
+          <h3 className="text-lg font-bold mb-3 drop-shadow">Recent updates</h3>
+          <div className="rounded-2xl bg-white/10 border border-white/30 shadow backdrop-blur divide-y divide-white/20">
+            {loading ? (
+              <div className="p-4 animate-pulse">
+                <div className="h-4 w-2/3 mb-2 rounded bg-white/30"></div>
+                <div className="h-4 w-1/2 rounded bg-white/20"></div>
+              </div>
+            ) : updates.length === 0 ? (
+              <div className="p-4 text-white/80">No updates yet.</div>
             ) : (
-              <>
-                <span>🫣</span>
-                <span>Out of tries. The word was <strong>{answer}</strong>.</span>
-              </>
+              updates.slice(0, 20).map((u) => (
+                <div key={u.id} className="p-4 flex items-start justify-between gap-4">
+                  <div>
+                    <div className="font-medium">
+                      <span>{u.friend}</span>
+                      <span
+                        className={`ml-2 inline-block rounded-full px-2 py-0.5 text-sm tabular-nums ${
+                          u.delta >= 0
+                            ? FRIEND_COLOR[u.friend]?.chipPlus || "bg-emerald-400 text-emerald-950"
+                            : FRIEND_COLOR[u.friend]?.chipMinus || "bg-rose-700 text-white"
+                        }`}
+                      >
+                        {u.delta >= 0 ? `+${u.delta}` : u.delta}
+                      </span>
+                    </div>
+                    {u.note && <div className="text-white/90 text-sm mt-1">{u.note}</div>}
+                  </div>
+                  <div className="text-white/80 text-sm shrink-0">{formatTimeAgo(u.ts)}</div>
+                </div>
+              ))
             )}
           </div>
-        )}
+        </section>
 
-        {/* On-screen keyboard (now clickable) */}
-        <Keyboard keyboardHints={keyboardHints} onKey={handleKey} />
+        {/* Rules from Sheet */}
+        <section className="mb-20">
+          <h3 className="text-lg font-bold mb-3 drop-shadow">Rules</h3>
+          <div className="rounded-2xl bg-white/10 border border-white/30 shadow p-4 backdrop-blur">
+            {loading ? (
+              <div className="space-y-2 animate-pulse">
+                <div className="h-3 w-4/5 rounded bg-white/30"></div>
+                <div className="h-3 w-3/5 rounded bg-white/20"></div>
+                <div className="h-3 w-2/3 rounded bg-white/25"></div>
+              </div>
+            ) : rules.length === 0 ? (
+              <div className="text-white/80">No rules found.</div>
+            ) : (
+              <ul className="list-disc list-inside space-y-1">
+                {rules.map((r, i) => (
+                  <li key={`${r.order ?? i}-${r.text}`} className="text-sm">
+                    <span className="text-white/95">{r.text}</span>
+                    {r.points != null && !Number.isNaN(r.points) && (
+                      <span className="ml-2 text-white/70">({r.points > 0 ? `+${r.points}` : r.points})</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
 
-        <p className="subtitle" style={{ marginTop: 16 }}>
-          Tip: Press <b>Enter</b> to submit. Use ⌫ for backspace.
-        </p>
+        {/* Footer */}
+        <footer className="text-white/90 text-sm flex items-center justify-between">
+          <span>Total points: <span className="tabular-nums font-semibold">{total}</span></span>
+          <span>Built for Calder 405 💙</span>
+        </footer>
       </div>
-    </div>
-  );
-}
-
-function Keyboard({ keyboardHints, onKey }) {
-  const rows = [
-    "QWERTYUIOP".split(""),
-    "ASDFGHJKL".split(""),
-    ["ENTER", ..."ZXCVBNM".split(""), "BACKSPACE"],
-  ];
-
-  return (
-    <div className="kbd">
-      {rows.flat().map((key, idx) => {
-        const hint = keyboardHints[key] || keyboardHints[key?.slice(0,1)];
-        const label = key === "BACKSPACE" ? "⌫" : key === "ENTER" ? "Enter" : key;
-        return (
-          <button
-            key={idx}
-            type="button"
-            className={`key ${hint || ''}`}
-            onClick={() => onKey && onKey(key)}
-            aria-label={key}
-          >
-            {label}
-          </button>
-        );
-      })}
     </div>
   );
 }
