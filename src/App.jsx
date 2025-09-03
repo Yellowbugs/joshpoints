@@ -48,7 +48,7 @@ export default function JoshPointsApp() {
       }
     }
     load();
-    const id = setInterval(load, 60_000);
+    const id = setInterval(load, 300_000);
     return () => { alive = false; clearInterval(id); };
   }, []);
 
@@ -145,9 +145,7 @@ export default function JoshPointsApp() {
                 {rules.map((r, i) => (
                   <li key={`${r.order ?? i}-${r.text}`} className="text-sm">
                     <span className="text-white/95">{r.text}</span>
-                    {r.points != null && !Number.isNaN(r.points) && (
-                      <span className="ml-2 text-white/70">({r.points > 0 ? `+${r.points}` : r.points})</span>
-                    )}
+                   
                   </li>
                 ))}
               </ul>
